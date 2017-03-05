@@ -234,7 +234,7 @@ function vk_board_comments_page() {
 function _vk_board_get_comments_data($offset = 0, $last_cid = NULL) {
 
   $data = _vk_board_get_comments($offset, $last_cid);
-   dpm($data, 'data');
+ //  dpm($data, 'data');
   $return = array(
     'last_id' => NULL,
     'render' => NULL,
