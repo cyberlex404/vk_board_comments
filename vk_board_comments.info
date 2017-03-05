@@ -1,0 +1,4 @@
+name = VK Board comments
+description = View vk.com board comments in page.
+package = VK
+core = 7.x

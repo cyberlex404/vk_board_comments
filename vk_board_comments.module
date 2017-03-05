@@ -1,0 +1,307 @@
+<?php
+/**
+ * Created by PhpStorm.
+ * User: Lex
+ * Date: 04.03.2017
+ * Time: 20:58
+ */
+
+
+define('VK_API_URL', 'https://api.vk.com/method/');
+define('VK_API_CALLBACK', 'http://drupal7120.cyberlex404.com/vkrandom/auth');
+
+class VKapi {
+
+  private $access_token = '';
+  const SERVICE_KEY = '86be05e186be05e1869bd1c5b286e42716886be86be05e1de04f9272328b132a0433236';
+  const PROTECTED_KEY = 'i3zcrjw0GP5O0IwCiCFd';
+  const API_URL = 'https://api.vk.com/method/';
+  const API_V = '5.62';
+  private $last_request = 0;
+  private $count_last_request = 0;
+
+  public function __construct() {
+    $access = variable_get('vkrandom_access' , NULL);
+    $this->access_token = $access['access_token'];
+  }
+
+  public function getRequest($method, $params = array(), $is_token = TRUE) {
+    $params['v'] = $this::API_V;
+    if($is_token) {
+      $params['access_token'] = $this->access_token;
+    }
+    $url = url($this::API_URL . $method, array('query'=>$params));
+    $request = drupal_http_request($url,array());
+    $time = $request->headers['date'];
+    $timestamp = strtotime($time);
+    //  dpm($request, $timestamp);
+    // dpm(time());
+    if($request->code == 200) {
+      /// dpm(drupal_json_decode($request->data));
+      //dpm($request);
+      return drupal_json_decode($request->data);
+
+    }elseif(isset($request->error)) {
+      dpm($request);
+      drupal_set_message($request->code . ': ' .$request->error, 'error');
+      return FALSE;
+    }
+  }
+
+
+  // likes.getList
+  public function likesGetList($params = array(), $is_token = TRUE ) {
+    return $this->getRequest('likes.getList', $params, $is_token);
+  }
+  // users.get
+
+  public function usersGet($params = array(), $is_token = TRUE ) {
+    return $this->getRequest('users.get', $params, $is_token);
+  }
+
+  public function usersGetFull($user_ids, $is_token = TRUE ) {
+    if(is_array($user_ids)) {
+      $ids = implode(',', $user_ids);
+    }else {
+      $ids = $user_ids;
+    }
+    $params = array(
+      'user_ids' => $ids,
+      'fields' => 'bdate, city, country, photo_200',
+    );
+    // $request = $this->getRequest('users.get', $params, $is_token);
+
+    return $this->getRequest('users.get', $params, $is_token);
+  }
+
+  // board.getComments
+
+  /**
+   * @param array $params
+   *  - group_id
+   *  - topic_id
+   *  - count
+   *  - extended
+   *  - start_comment_id
+   *  - sort asc | desc
+   *  - offset
+   * @param bool $is_token
+   * @return bool|mixed
+   */
+  public function boardGetComments(array $params, $is_token = TRUE) {
+
+    return $this->getRequest('board.getComments', $params, $is_token);
+  }
+
+}
+
+/**
+ * Implements hook_permission().
+ *
+ */
+function vk_board_comments_permission() {
+  return array(
+    'access vk board comments page' => array(
+      'title' => t('Access vk board comments page'),
+      'description' => t('Allow users to access comments page'),
+    ),
+    'access config vk board comments' => array(
+      'title' => t('Access config vk board comments'),
+      'description' => t('Access config vk board comments'),
+    ),
+  );
+}
+
+/**
+ * Implements hook_menu().
+ */
+function vk_board_comments_menu() {
+  $items['vk-reviews'] = array(
+    'title' => 'Reviews',
+    'page callback' => 'vk_board_comments_page',
+    'access arguments' => array('access vk board comments page'),
+    'access callback' => TRUE,
+    'expanded' => TRUE,
+  );
+  $items['vk-reviews/more/%'] = array(
+    'title' => 'Reviews',
+    'page callback' => 'vk_board_comments_callback',
+    'delivery callback' => 'ajax_deliver',
+    'page arguments' => array(2),
+    'access arguments' => array('access vk board comments page'),
+    'access callback' => TRUE,
+    'expanded' => TRUE,
+  );
+
+  return $items;
+}
+
+/**
+ * Menu callback.
+ */
+function vk_board_comments_callback($start_cid, $mode = NULL) {
+  // Если у посетителя отключён javascript, то показываем ему сообщение
+  if ($mode != 'ajax') {
+    drupal_set_message('Enable Javascript');
+    drupal_goto(isset($_SERVER['HTTP_REFERER']) ? $_SERVER['HTTP_REFERER'] : '<front>');
+  }
+  $commentsData = _vk_board_get_comments_data(0, $start_cid);
+  $newLastId = $commentsData['last_id'];
+
+  //$commands[] = ajax_command_replace('.vk-board-more-load', $test_html);
+  $commands[] = ajax_command_replace('.vk-board-more-load', $commentsData['render']);
+  //$commands[] = ajax_command_after('.vk-bc-comment-list div:last-child', '<h2>Some subtitle</h2>');
+  //$commands[] = ajax_command_html('.reviews-list', _vk_board_comments_render(0, $start_cid));
+  $commands[] = ajax_command_html('.vk-bc-comment-more', l('more', 'vk-reviews/more/' . $newLastId . '/nojs', array(
+    'attributes' => array(
+      'class' => array('use-ajax'),
+      'title' => 'More comments',
+    )
+  )));
+  // обновляем содержимое блока
+  //$commands[] = ajax_command_html('#last-comments', _last_comments_block_content($from_cid));
+
+  return array(
+    '#type' => 'ajax',
+    '#commands' => $commands,
+  );
+}
+
+function vk_board_comments_page() {
+  drupal_add_library('system', 'drupal.ajax');
+  drupal_add_library('system', 'jquery.form');
+
+  $commentsData = _vk_board_get_comments_data(0, 40);
+
+  dpm($commentsData);
+  $lastComment = 699;
+  $link = l('more', 'vk-reviews/more/' . $lastComment . '/nojs', array(
+    'attributes' => array(
+      'class' => array('use-ajax'),
+      'title' => 'More comments',
+    )
+  ));
+  $content =  '<div class="vk-board-comments-wrapper"><div class="vk-bc-comment-list">' . $commentsData['render'] . '</div><div class="vk-bc-comment-more">' . $link . '</div></div>';
+  return $content;
+}
+
+function _vk_board_get_comments_data($offset = 0, $last_cid = NULL) {
+  dpm($offset, $last_cid);
+  $data = _vk_board_get_comments($offset, $last_cid);
+  $return = array(
+    'last_id' => NULL,
+    'render' => NULL,
+    'data' => $data,
+    'comments' => NULL,
+  );
+
+  $comments = array();
+  $authors = array();
+  $items = $data['response']['items'];
+  $profiles = $data['response']['profiles'];
+  foreach ($profiles as $profile) {
+    $authors[$profile['id']] = $profile;
+  }
+  foreach ($data['response']['groups'] as $group) {
+    $authors['-' . $group['id']] = $group;
+  }
+  foreach ($items as $item) {
+    $comment = $item;
+    $comment['author'] = $authors[$item['from_id']];
+    $comments[$item['id']] = $comment;
+  }
+  if(!is_null($last_cid)) {
+    unset($comments[$last_cid]);
+  }
+
+  $return['comments'] = $comments;
+  $return['authors'] = $authors;
+
+  $render_items = array();
+  foreach ($comments as $item) {
+    $render = array(
+      '#theme' => 'vk_comment',
+      '#body' =>  _vk_board_format_text($item['text']),
+      //'#body' => check_plain($item['text']),
+      '#time' => format_date($item['date'], 'custom', 'H:i d.m.Y'),
+      '#fullname' => '',
+      '#cid' => $item['id'],
+    );
+    if (isset($item['author']['first_name']) && isset($item['author']['last_name'])) {
+      $render['#fullname'] = $item['author']['first_name'] . ' ' . $item['author']['last_name'];
+    }elseif(isset($item['author']['name'])) {
+      $render['#fullname'] = $item['author']['name'];
+    }
+    if(isset($item['author']['photo_200'])) {
+      $render['#avasrc'] = $item['author']['photo_200'];
+    }elseif(isset($item['author']['photo_100'])) {
+      $render['#avasrc'] = $item['author']['photo_100'];
+    }
+    $render_items[$item['id']] = render($render);
+  }
+  $variables = array(
+    'rows' => $render_items,
+  );
+  $lastComment = end($comments);
+  $return['last_id'] = $lastComment['id'];
+  $output = theme('vk_comment_list', $variables);
+  $return['render'] = $output . '<div class="vk-board-more-load"></div>';
+  return $return;
+}
+
+
+function _vk_board_get_comments($offset = 0, $last_cid = NULL) {
+  $vkapi = new VKapi();
+  $count = 100;
+  $offset = ($offset * $count) + 0;
+  $params = array(
+    'group_id' => 47973616,
+    'topic_id' => 27666843,
+    'count' => $count,
+    'start_comment_id' => $last_cid,
+    'extended' => 1,
+    'sort' => 'asc',
+    'offset' => $offset,
+  );
+  $data = $vkapi->boardGetComments($params, FALSE);
+
+  return $vkapi->boardGetComments($params, FALSE);
+}
+
+function _vk_board_format_text($text) {
+  $text = check_markup($text, 'full_html');
+  //dpm($text);
+  $patterns = array();
+  $patterns[0] = '/\[id\d+\:bp\-\d+\_\d+\|/';
+  $patterns[1] = '/\]/';
+  $replacements = array();
+  $replacements[0] = '';
+  $replacements[1] = '';
+
+  $text = preg_replace($patterns, $replacements, $text);
+  return $text;
+}
+
+/**
+ * Implements hook_theme().
+ */
+function vk_board_comments_theme() {
+  return array(
+    'vk_comment' => array( // название хука темизации
+      'variables' => array( // переменные которые будут доступны в шаблоне
+        'fullname' => NULL,
+        'body' => NULL,
+        'time' => NULL,
+        'avasrc' => NULL,
+        'cid' => NULL,
+      ),
+      'template' => 'vk-comment',
+    ),
+    'vk_comment_list' => array(
+      'variables' => array(
+        'rows' => NULL,
+      ),
+      'template' => 'vk-comment-list',
+    ),
+  );
+}
