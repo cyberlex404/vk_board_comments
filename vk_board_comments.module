@@ -7,22 +7,51 @@
  */
 
 
-define('VK_API_URL', 'https://api.vk.com/method/');
-define('VK_API_CALLBACK', 'http://drupal7120.cyberlex404.com/vkrandom/auth');
-
 class VKapi {
 
-  private $access_token = '';
-  const SERVICE_KEY = '86be05e186be05e1869bd1c5b286e42716886be86be05e1de04f9272328b132a0433236';
-  const PROTECTED_KEY = 'i3zcrjw0GP5O0IwCiCFd';
+  private $access_token = NULL;
+  private $protected_key;
+  private $service_key; // send as access_token
+  private $client_id;
+
   const API_URL = 'https://api.vk.com/method/';
   const API_V = '5.62';
   private $last_request = 0;
   private $count_last_request = 0;
 
-  public function __construct() {
-    $access = variable_get('vkrandom_access' , NULL);
-    $this->access_token = $access['access_token'];
+  public function __construct($protected_key = NULL, $service_key = NULL) {
+    $this->protected_key = variable_get('vk_board_protected_key', '');
+    $this->service_key = variable_get('vk_board_service_key', '');
+    $this->client_id = variable_get('vk_board_client_id', '');
+    $this->getServiceKeyOld();
+  }
+
+  public function getParams() {
+    return array(
+      'protected_key' => $this->protected_key,
+      'service_key' => $this->service_key,
+      'client_id' => $this->client_id,
+      'access_token' => $this->access_token,
+    );
+  }
+
+  private function getServiceKeyOld() {
+    $url = 'https://oauth.vk.com/access_token';
+    $params = array(
+      'client_id' => $this->client_id,
+      'client_secret' => $this->protected_key,
+      'grant_type' => 'client_credentials',
+      'v' => $this::API_V,
+    );
+    $url = url($url, array('query'=>$params));
+    $request = drupal_http_request($url,array());
+    if($request->code == 200) {
+      $data = drupal_json_decode($request->data);
+      $this->access_token = $data['access_token'];
+    }elseif(isset($request->error)) {
+      drupal_set_message($request->code . ': ' .$request->error, 'error');
+      $this->access_token = $this->service_key;
+    }
   }
 
   public function getRequest($method, $params = array(), $is_token = TRUE) {
@@ -42,7 +71,7 @@ class VKapi {
       return drupal_json_decode($request->data);
 
     }elseif(isset($request->error)) {
-      dpm($request);
+    //  dpm($request);
       drupal_set_message($request->code . ': ' .$request->error, 'error');
       return FALSE;
     }
@@ -132,6 +161,26 @@ function vk_board_comments_menu() {
     'access callback' => TRUE,
     'expanded' => TRUE,
   );
+ //http://drupal7120.cyberlex404.com/vk-reviews#overlay=admin/config/services/rss-publishing
+  /*
+  $items['admin/config/services'] = array(
+    'title' => 'New configuration section',
+    'position' => 'left',
+    'weight' => -100,
+    'page callback' => 'system_admin_menu_block_page',
+    'access arguments' => array('administer site configuration'),
+    'file' => 'system.admin.inc',
+    'file path' => drupal_get_path('module', 'system'),
+  );
+*/
+  $items['admin/config/services/vk-board-comments'] = array(
+    'title' => 'VK board comments',
+    'description' => 'VK board comments',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('vk_board_comments_config_form'),
+    'access arguments' => array('administer site configuration'),
+    'file' => 'vk_board_comments.admin.inc',
+  );
 
   return $items;
 }
@@ -171,9 +220,10 @@ function vk_board_comments_page() {
   drupal_add_library('system', 'drupal.ajax');
   drupal_add_library('system', 'jquery.form');
 
-  $commentsData = _vk_board_get_comments_data(0, 40);
+  $commentsData = _vk_board_get_comments_data();
 
-  dpm($commentsData);
+
+ // dpm($commentsData);
   $lastComment = 699;
   $link = l('more', 'vk-reviews/more/' . $lastComment . '/nojs', array(
     'attributes' => array(
@@ -181,13 +231,14 @@ function vk_board_comments_page() {
       'title' => 'More comments',
     )
   ));
-  $content =  '<div class="vk-board-comments-wrapper"><div class="vk-bc-comment-list">' . $commentsData['render'] . '</div><div class="vk-bc-comment-more">' . $link . '</div></div>';
+  $content =  '<div class="vk-board-comments-wrapper"><div class="vk-bc-comment-list">' . $commentsData['render'] . '</div><div class="vk-bc-comment-more">' /*. $link */. '</div></div>';
   return $content;
 }
 
 function _vk_board_get_comments_data($offset = 0, $last_cid = NULL) {
-  dpm($offset, $last_cid);
+
   $data = _vk_board_get_comments($offset, $last_cid);
+   dpm($data, 'data');
   $return = array(
     'last_id' => NULL,
     'render' => NULL,
@@ -219,13 +270,17 @@ function _vk_board_get_comments_data($offset = 0, $last_cid = NULL) {
 
   $render_items = array();
   foreach ($comments as $item) {
+    dpm($item);
     $render = array(
       '#theme' => 'vk_comment',
       '#body' =>  _vk_board_format_text($item['text']),
-      //'#body' => check_plain($item['text']),
+      '#uid' => $item['author']['id'],
       '#time' => format_date($item['date'], 'custom', 'H:i d.m.Y'),
       '#fullname' => '',
       '#cid' => $item['id'],
+      '#comment_link' => _vk_board_get_comment_link($item),
+      '#item' => $item,
+      '#author_link' => _vk_board_get_author_link($item),
     );
     if (isset($item['author']['first_name']) && isset($item['author']['last_name'])) {
       $render['#fullname'] = $item['author']['first_name'] . ' ' . $item['author']['last_name'];
@@ -249,21 +304,38 @@ function _vk_board_get_comments_data($offset = 0, $last_cid = NULL) {
   return $return;
 }
 
+function _vk_board_get_comment_link($comment){
+  $group_id = variable_get('vk_board_group_id', NULL);
+  $topic_id = variable_get('vk_board_topic_id', NULL);
+  return 'https://vk.com/topic-' . $group_id . '_' . $topic_id .'?post=' . $comment['id'];
+}
+
+function _vk_board_get_author_link($comment){
+  $link = 'https://vk.com/';
+  if(isset($comment['author']['type']) && $comment['author']['type'] == 'group') {
+    if(isset($comment['author']['screen_name'])) {
+      $link .= $comment['author']['screen_name'];
+    }
+  }else{
+    $link .= 'id' . $comment['author']['id'];
+  }
+  return $link;
+}
 
 function _vk_board_get_comments($offset = 0, $last_cid = NULL) {
   $vkapi = new VKapi();
-  $count = 100;
+
+  $count = variable_get('vk_board_comment_count', 100);
   $offset = ($offset * $count) + 0;
   $params = array(
-    'group_id' => 47973616,
-    'topic_id' => 27666843,
+    'group_id' => variable_get('vk_board_group_id', ''),
+    'topic_id' => variable_get('vk_board_topic_id', ''),
     'count' => $count,
     'start_comment_id' => $last_cid,
     'extended' => 1,
-    'sort' => 'asc',
+    'sort' => 'desc',
     'offset' => $offset,
   );
-  $data = $vkapi->boardGetComments($params, FALSE);
 
   return $vkapi->boardGetComments($params, FALSE);
 }
@@ -294,6 +366,10 @@ function vk_board_comments_theme() {
         'time' => NULL,
         'avasrc' => NULL,
         'cid' => NULL,
+        'comment_link' => NULL,
+        'item' => NULL,
+        'uid' => NULL,
+        'author_link' => NULL,
       ),
       'template' => 'vk-comment',
     ),

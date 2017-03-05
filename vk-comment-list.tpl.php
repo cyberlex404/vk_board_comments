@@ -11,5 +11,4 @@
 <?php foreach ($rows as $id => $row): ?>
     <div class="vk-board-item" data-comment-id="<?php print $id; ?>">
       <?php print $row; ?>
-    </div>
-<?php endforeach; ?>
+    </div><?php endforeach; ?>
