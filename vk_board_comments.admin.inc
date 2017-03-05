@@ -9,7 +9,12 @@
 function vk_board_comments_config_form($form, &$form_state) {
 
   $form = array();
-
+  $form['vk_board_page_title'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Page title'),
+    '#default_value' => variable_get('vk_board_page_title', 'Reviews'),
+    '#required' => TRUE,
+  );
   $form['vk_board_comment_count'] = array(
     '#type' => 'textfield',
     '#title' => t('Count by page'),
@@ -19,7 +24,7 @@ function vk_board_comments_config_form($form, &$form_state) {
 
   $form['vk_board_client_id'] = array(
     '#type' => 'textfield',
-    '#title' => t('Service key'),
+    '#title' => t('Client id'),
     '#default_value' => variable_get('vk_board_client_id', ''),
     '#required' => TRUE,
   );

@@ -142,7 +142,7 @@ function vk_board_comments_permission() {
  */
 function vk_board_comments_menu() {
   $items['vk-reviews'] = array(
-    'title' => 'Reviews',
+    'title' => variable_get('vk_board_page_title', 'Reviews'),
     'page callback' => 'vk_board_comments_page',
     'access arguments' => array('access vk board comments page'),
     'access callback' => TRUE,
