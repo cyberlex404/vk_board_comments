@@ -61,17 +61,13 @@ class VKapi {
     }
     $url = url($this::API_URL . $method, array('query'=>$params));
     $request = drupal_http_request($url,array());
-    $time = $request->headers['date'];
-    $timestamp = strtotime($time);
-    //  dpm($request, $timestamp);
-    // dpm(time());
+
     if($request->code == 200) {
-      /// dpm(drupal_json_decode($request->data));
-      //dpm($request);
+
       return drupal_json_decode($request->data);
 
     }elseif(isset($request->error)) {
-    //  dpm($request);
+
       drupal_set_message($request->code . ': ' .$request->error, 'error');
       return FALSE;
     }
@@ -270,7 +266,7 @@ function _vk_board_get_comments_data($offset = 0, $last_cid = NULL) {
 
   $render_items = array();
   foreach ($comments as $item) {
-    dpm($item);
+
     $render = array(
       '#theme' => 'vk_comment',
       '#body' =>  _vk_board_format_text($item['text']),
